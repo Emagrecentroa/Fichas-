@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Controle de Fichas de Avaliação</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+  // Configuração do projeto Firebase. Se a apiKey voltar a ser "COLE_AQUI", o app usa o modo local.
+  window.FIREBASE_CONFIG = {
+    apiKey: "AIzaSyALE3JAz2Spit5YLToxo-H07xEf4lOHDNs",
+    authDomain: "aniversariantes-emagrecentro.firebaseapp.com",
+    projectId: "aniversariantes-emagrecentro",
+    storageBucket: "aniversariantes-emagrecentro.firebasestorage.app",
+    messagingSenderId: "887474375015",
+    appId: "1:887474375015:web:178094abc7f354581947c2"
+  };
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Figtree', system-ui, sans-serif; background: #f4f6f5; color: #1c2b2d; }
+  .tab-on { background: #0f5f63; color: #fff; }
+  .tab-off { background: transparent; color: #43585b; }
+  .late-row { background: #fff4ea; }
+  @keyframes pulse-soft { 0%,100% { opacity: 1 } 50% { opacity: .55 } }
+  .pulse-soft { animation: pulse-soft 2s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .pulse-soft { animation: none; } }
+  :focus-visible { outline: 3px solid #f59e0b; outline-offset: 2px; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<header class="bg-[#0f5f63] text-white">
+  <div class="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
+    <div>
+      <h1 class="text-xl sm:text-2xl font-bold leading-tight">Controle de fichas de avaliação</h1>
+      <p class="text-sm text-teal-100">Saiu, voltou, registrado.</p>
+      <p id="modo" class="text-xs mt-1"></p>
+    </div>
+    <div class="text-right">
+      <div id="relogio" class="text-2xl font-bold tabular-nums"></div>
+      <div id="dataHoje" class="text-xs text-teal-100"></div>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-5xl mx-auto px-4 py-5 space-y-5">
+
+  <!-- Alerta -->
+  <div id="alerta" class="hidden rounded-xl border-2 border-orange-500 bg-orange-50 text-orange-900 px-4 py-3 flex items-center gap-3">
+    <span class="text-2xl" aria-hidden="true">⚠️</span>
+    <p id="alertaTexto" class="font-semibold"></p>
+  </div>
+
+  <!-- Formulário -->
+  <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5">
+    <h2 class="text-lg font-bold">Retirar ficha agora</h2>
+    <p class="text-sm text-slate-500 mb-3">Lançamento rápido para ficha que já sai com a avaliadora. Se ela só chegou, cadastre na aba Na recepção.</p>
+    <form id="formRetirar" class="grid gap-3 sm:grid-cols-6" autocomplete="off">
+      <div class="sm:col-span-3">
+        <label for="cliente" class="block text-sm font-medium mb-1">Nome da cliente</label>
+        <input id="cliente" required maxlength="80" placeholder="Ex.: Maria da Silva"
+          class="w-full rounded-lg border border-slate-300 px-3 py-2.5 focus:border-teal-700">
+      </div>
+      <div class="sm:col-span-3">
+        <label for="avaliadora" class="block text-sm font-medium mb-1">Avaliadora</label>
+        <select id="avaliadora" required class="w-full rounded-lg border border-slate-300 px-3 py-2.5 bg-white"></select>
+      </div>
+      <div id="wrapOutra" class="sm:col-span-3 hidden">
+        <label for="outra" class="block text-sm font-medium mb-1">Nome da avaliadora</label>
+        <input id="outra" maxlength="60" class="w-full rounded-lg border border-slate-300 px-3 py-2.5">
+      </div>
+      <div class="sm:col-span-3">
+        <label for="saida" class="block text-sm font-medium mb-1">Data e hora da saída <span class="text-slate-500 font-normal">(automática, pode ajustar)</span></label>
+        <input id="saida" type="datetime-local" required class="w-full rounded-lg border border-slate-300 px-3 py-2.5">
+      </div>
+      <div class="sm:col-span-3 flex items-end">
+        <button type="submit" class="w-full rounded-lg bg-[#0f5f63] hover:bg-[#0b4a4d] text-white font-bold py-3 text-base">Retirar ficha</button>
+      </div>
+    </form>
+
+    <details class="mt-4 text-sm">
+      <summary class="cursor-pointer text-teal-800 font-medium">Gerenciar avaliadoras</summary>
+      <div class="mt-3 space-y-3">
+        <ul id="listaAval" class="flex flex-wrap gap-2"></ul>
+        <div class="flex gap-2 max-w-md">
+          <input id="novaAval" maxlength="60" placeholder="Nome da nova avaliadora" class="flex-1 rounded-lg border border-slate-300 px-3 py-2">
+          <button id="btnAddAval" type="button" class="rounded-lg bg-slate-800 text-white px-4 py-2 font-medium">Adicionar</button>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- Abas -->
+  <div class="inline-flex flex-wrap rounded-xl bg-white border border-slate-200 p-1 gap-1" role="tablist">
+    <button id="tabRecep" role="tab" class="tab-off rounded-lg px-4 py-2 font-semibold text-sm">
+      Na recepção <span id="cntRecep" class="ml-1 inline-block min-w-[1.5rem] text-center rounded-full bg-slate-200 text-slate-800 px-1.5">0</span>
+    </button>
+    <button id="tabAtivas" role="tab" class="tab-on rounded-lg px-4 py-2 font-semibold text-sm">
+      Em andamento <span id="cntAtivas" class="ml-1 inline-block min-w-[1.5rem] text-center rounded-full bg-slate-200 text-slate-800 px-1.5">0</span>
+    </button>
+    <button id="tabHist" role="tab" class="tab-off rounded-lg px-4 py-2 font-semibold text-sm">
+      Histórico <span id="cntHist" class="ml-1 inline-block min-w-[1.5rem] text-center rounded-full bg-slate-200 text-slate-800 px-1.5">0</span>
+    </button>
+  </div>
+
+  <!-- Na recepção (cadastro) -->
+  <section id="painelRecep" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+    <div class="px-4 sm:px-5 py-4 border-b border-slate-200">
+      <h2 class="text-lg font-bold mb-3">Cadastrar ficha</h2>
+      <form id="formCadastro" class="grid gap-3 sm:grid-cols-6" autocomplete="off">
+        <div class="sm:col-span-3">
+          <label for="cadCliente" class="block text-sm font-medium mb-1">Nome da cliente</label>
+          <input id="cadCliente" required maxlength="80" class="w-full rounded-lg border border-slate-300 px-3 py-2.5">
+        </div>
+        <div class="sm:col-span-1">
+          <label for="cadNumero" class="block text-sm font-medium mb-1">Nº da ficha</label>
+          <input id="cadNumero" maxlength="20" placeholder="opcional" class="w-full rounded-lg border border-slate-300 px-3 py-2.5">
+        </div>
+        <div class="sm:col-span-2">
+          <label for="chegada" class="block text-sm font-medium mb-1">Chegada</label>
+          <input id="chegada" type="datetime-local" required class="w-full rounded-lg border border-slate-300 px-3 py-2.5">
+        </div>
+        <div class="sm:col-span-4">
+          <label for="cadObs" class="block text-sm font-medium mb-1">Observação</label>
+          <input id="cadObs" maxlength="120" placeholder="opcional: ex. avaliação de retorno" class="w-full rounded-lg border border-slate-300 px-3 py-2.5">
+        </div>
+        <div class="sm:col-span-2 flex items-end">
+          <button type="submit" class="w-full rounded-lg bg-[#0f5f63] hover:bg-[#0b4a4d] text-white font-bold py-3">Cadastrar ficha</button>
+        </div>
+      </form>
+    </div>
+    <div class="px-4 sm:px-5 py-3 border-b border-slate-200"><h2 class="text-lg font-bold">Fichas aguardando na recepção</h2></div>
+    <div class="px-4 sm:px-5 py-3 bg-teal-50 border-b border-teal-100 flex flex-wrap items-center gap-3">
+      <label class="inline-flex items-center gap-2 font-medium"><input id="selTodas" type="checkbox" class="w-5 h-5 accent-teal-700"> Selecionar todas</label>
+      <span id="qtdSel" class="text-sm text-teal-900 font-semibold"></span>
+      <div class="flex flex-wrap gap-2 w-full sm:w-auto sm:ml-auto">
+        <select id="avalLote" aria-label="Avaliadora que vai levar as fichas" class="flex-1 sm:flex-none rounded-lg border border-slate-300 px-3 py-2.5 bg-white"></select>
+        <button id="btnRetirarLote" type="button" class="rounded-lg bg-[#0f5f63] hover:bg-[#0b4a4d] text-white font-bold px-4 py-2.5 disabled:opacity-40 disabled:cursor-not-allowed">Retirar selecionadas</button>
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-left">
+        <thead class="bg-slate-50 text-sm text-slate-600">
+          <tr>
+            <th class="px-4 py-2.5 w-10"><span class="sr-only">Selecionar</span></th>
+            <th class="px-4 py-2.5 font-semibold">Cliente</th>
+            <th class="px-4 py-2.5 font-semibold">Chegada</th>
+            <th class="px-4 py-2.5"></th>
+          </tr>
+        </thead>
+        <tbody id="tbRecep"></tbody>
+      </table>
+    </div>
+    <p id="vazioRecep" class="hidden px-5 py-8 text-center text-slate-500">Nenhuma ficha aguardando. Cadastre a ficha quando ela chegar.</p>
+  </section>
+
+  <!-- Em andamento -->
+  <section id="painelAtivas" class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+    <div class="px-4 sm:px-5 py-3 border-b border-slate-200">
+      <h2 class="text-lg font-bold">Fichas com as avaliadoras</h2>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-left">
+        <thead class="bg-slate-50 text-sm text-slate-600">
+          <tr>
+            <th class="px-4 py-2.5 font-semibold">Cliente</th>
+            <th class="px-4 py-2.5 font-semibold">Avaliadora</th>
+            <th class="px-4 py-2.5 font-semibold">Saída</th>
+            <th class="px-4 py-2.5 font-semibold">Tempo fora</th>
+            <th class="px-4 py-2.5 font-semibold">Comprovante</th>
+            <th class="px-4 py-2.5"></th>
+          </tr>
+        </thead>
+        <tbody id="tbAtivas"></tbody>
+      </table>
+    </div>
+    <p id="vazioAtivas" class="hidden px-5 py-8 text-center text-slate-500">Nenhuma ficha fora da recepção. Use o formulário acima quando uma ficha sair.</p>
+  </section>
+
+  <!-- Histórico -->
+  <section id="painelHist" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+    <div class="px-4 sm:px-5 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+      <h2 id="tituloHist" class="text-lg font-bold">Fichas devolvidas</h2>
+      <input id="busca" type="search" placeholder="Buscar cliente ou avaliadora" class="rounded-lg border border-slate-300 px-3 py-2 text-sm w-full sm:w-64">
+    </div>
+    <div class="px-4 sm:px-5 py-3 border-b border-slate-200 bg-slate-50">
+      <div class="flex items-center gap-2 mb-2">
+        <label for="selAno" class="text-sm font-medium">Ano</label>
+        <select id="selAno" class="rounded-lg border border-slate-300 px-2 py-1.5 bg-white"></select>
+        <span class="text-xs text-slate-500">Ao buscar, a pesquisa vale para todos os meses.</span>
+      </div>
+      <div id="pastas" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-2"></div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-left">
+        <thead class="bg-slate-50 text-sm text-slate-600">
+          <tr>
+            <th class="px-4 py-2.5 font-semibold">Cliente</th>
+            <th class="px-4 py-2.5 font-semibold">Avaliadora</th>
+            <th class="px-4 py-2.5 font-semibold">Saída</th>
+            <th class="px-4 py-2.5 font-semibold">Devolução</th>
+            <th class="px-4 py-2.5 font-semibold">Duração</th>
+            <th class="px-4 py-2.5 font-semibold">Comprovante</th>
+            <th class="px-4 py-2.5"></th>
+          </tr>
+        </thead>
+        <tbody id="tbHist"></tbody>
+      </table>
+    </div>
+    <p id="vazioHist" class="hidden px-5 py-8 text-center text-slate-500">Nenhuma ficha devolvida ainda.</p>
+    <div class="px-4 sm:px-5 py-3 border-t border-slate-200 text-right">
+      <button id="btnLimpar" class="text-sm text-red-700 hover:underline">Apagar histórico</button>
+    </div>
+  </section>
+</main>
+
+<!-- Confirmação com assinatura / foto -->
+<div id="modalProva" class="hidden fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="tituloProva">
+  <div class="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl p-4 sm:p-5 max-h-[95vh] overflow-y-auto">
+    <h2 id="tituloProva" class="text-lg font-bold">Confirmar retirada</h2>
+    <p id="provaResumo" class="text-sm text-slate-600 mb-4"></p>
+
+    <div class="mb-4">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-sm font-medium">Assinatura da avaliadora</span>
+        <button id="btnLimparAss" type="button" class="text-sm text-teal-800 hover:underline">Limpar</button>
+      </div>
+      <canvas id="canvasAss" class="w-full h-40 border-2 border-dashed border-slate-300 rounded-lg bg-white touch-none"></canvas>
+    </div>
+
+    <div class="mb-3">
+      <span class="text-sm font-medium block mb-1">Foto da avaliadora</span>
+      <video id="video" class="hidden w-full rounded-lg bg-black" autoplay playsinline muted></video>
+      <img id="fotoPrev" alt="Foto capturada" class="hidden w-full max-h-64 object-contain rounded-lg border border-slate-200">
+      <div class="flex gap-2 mt-2">
+        <button id="btnFoto" type="button" class="rounded-lg bg-slate-800 text-white px-4 py-2 font-medium">Tirar foto</button>
+        <button id="btnCapturar" type="button" class="hidden rounded-lg bg-emerald-600 text-white px-4 py-2 font-medium">Capturar</button>
+      </div>
+      <input id="fotoArq" type="file" accept="image/*" capture="user" class="hidden">
+    </div>
+
+    <p class="text-xs text-slate-500">Basta a assinatura ou a foto. Se preferir, faça as duas.</p>
+    <p id="provaErro" class="hidden text-sm font-medium text-red-700 mt-2"></p>
+    <div class="flex gap-2 mt-4">
+      <button id="btnCancelarProva" type="button" class="flex-1 rounded-lg border border-slate-300 py-3 font-semibold">Cancelar</button>
+      <button id="btnConfirmarProva" type="button" class="flex-1 rounded-lg bg-[#0f5f63] hover:bg-[#0b4a4d] text-white py-3 font-bold">Confirmar retirada</button>
+    </div>
+  </div>
+</div>
+
+<!-- Ver comprovante -->
+<div id="modalVer" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+  <div class="bg-white rounded-2xl p-4 sm:p-5 w-full max-w-md max-h-[95vh] overflow-y-auto">
+    <h2 class="text-lg font-bold">Comprovante de retirada</h2>
+    <p id="verInfo" class="text-sm text-slate-600 mb-3"></p>
+    <div id="verCorpo" class="space-y-3"></div>
+    <button id="btnFecharVer" class="mt-4 w-full rounded-lg bg-slate-800 text-white py-2.5 font-semibold">Fechar</button>
+  </div>
+</div>
+
+<div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 hidden bg-slate-900 text-white rounded-lg px-4 py-2 text-sm shadow-lg"></div>
+
+<script>
+(() => {
+  const LIMITE_MIN = 60;          // alerta após 1 hora fora
+  const HORA_FIM_DIA = 18;        // após esse horário, tudo que estiver fora gera alerta
+  const K_FICHAS = 'fichas_avaliacao_v1';
+  const K_AVAL = 'avaliadoras_v1';
+
+  const $ = id => document.getElementById(id);
+  const load = (k, def) => { try { return JSON.parse(localStorage.getItem(k)) ?? def; } catch { return def; } };
+  const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { toast('Armazenamento cheio. Apague o histórico antigo.'); } };
+
+  const AVAL_PADRAO = ['Avaliadora 1', 'Avaliadora 2', 'Avaliadora 3'];
+  const novoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  let fichas = [];
+  let avaliadoras = AVAL_PADRAO;
+
+  // ---- Armazenamento: nuvem (Firestore, sincroniza entre aparelhos) ou local (localStorage) ----
+  const cfg = window.FIREBASE_CONFIG || {};
+  const nuvem = !!(window.firebase && cfg.apiKey && !/COLE/.test(cfg.apiKey) && cfg.projectId);
+  let store;
+  if (nuvem) {
+    firebase.initializeApp(cfg);
+    const db = firebase.firestore();
+    db.enablePersistence({ synchronizeTabs: true }).catch(() => {});   // funciona offline e envia depois
+    const col = db.collection('controle_fichas'), docAval = db.collection('controle_fichas_config').doc('avaliadoras');
+    const falha = pr => pr.catch(() => toast('Não foi possível salvar. Verifique a conexão.'));
+    store = {
+      ouvirFichas: cb => col.onSnapshot(sn => cb(sn.docs.map(d => d.data())), () => toast('Sem acesso à nuvem. Confira as regras do Firestore.')),
+      ouvirAval: cb => docAval.onSnapshot(sn => cb(sn.exists ? sn.data().lista : null)),
+      gravar: f => falha(col.doc(f.id).set(f)),
+      atualizar: (id, patch) => falha(col.doc(id).update(patch)),
+      excluir: async ids => {
+        for (let i = 0; i < ids.length; i += 400) {
+          const b = db.batch(); ids.slice(i, i + 400).forEach(id => b.delete(col.doc(id)));
+          await falha(b.commit());
+        }
+      },
+      salvarAval: lista => falha(docAval.set({ lista })),
+    };
+  } else {
+    let cbF = null, cbA = null;
+    const lerF = () => load(K_FICHAS, []);
+    const gravarF = arr => { save(K_FICHAS, arr); if (cbF) cbF(arr); };
+    store = {
+      ouvirFichas: cb => { cbF = cb; cb(lerF()); },
+      ouvirAval: cb => { cbA = cb; cb(load(K_AVAL, null)); },
+      gravar: f => gravarF([...lerF(), f]),
+      atualizar: (id, patch) => gravarF(lerF().map(x => x.id === id ? { ...x, ...patch } : x)),
+      excluir: ids => gravarF(lerF().filter(x => !ids.includes(x.id))),
+      salvarAval: lista => { save(K_AVAL, lista); if (cbA) cbA(lista); },
+    };
+  }
+  let saidaEditada = false, chegadaEditada = false;
+
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const fmt = iso => new Date(iso).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+  const pad = n => String(n).padStart(2, '0');
+  const paraInput = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const minutos = (a, b) => Math.max(0, Math.round((b - a) / 60000));
+  const nomeCli = f => esc(f.cliente) + (f.numero ? ` <span class="ml-1 text-xs font-medium bg-slate-100 rounded px-1.5 py-0.5">Nº ${esc(f.numero)}</span>` : '');
+  const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const dataRef = f => new Date(f.chegada || f.saida);
+  let anoSel = new Date().getFullYear(), mesSel = new Date().getMonth();   // mesSel -1 = ano inteiro
+  const selecionadas = new Set();
+  const recepAtual = () => fichas.filter(f => !f.saida && !f.devolucao);
+  function atualizarLote(total) {
+    const n = selecionadas.size;
+    $('qtdSel').textContent = `${n} de ${total} selecionada${n === 1 ? '' : 's'}`;
+    $('selTodas').checked = total > 0 && n === total;
+    $('selTodas').indeterminate = n > 0 && n < total;
+    $('btnRetirarLote').disabled = n === 0;
+    $('btnRetirarLote').textContent = n > 1 ? `Retirar ${n} fichas` : 'Retirar selecionada';
+  }
+  const miniProva = f => (f.prova && (f.prova.foto || f.prova.assinatura))
+    ? `<button data-ver="${f.id}" class="flex gap-1" aria-label="Ver comprovante">${f.prova.foto ? `<img src="${f.prova.foto}" alt="" class="h-10 w-10 object-cover rounded border border-slate-200">` : ''}${f.prova.assinatura ? `<img src="${f.prova.assinatura}" alt="" class="h-10 w-16 object-contain rounded border border-slate-200 bg-white">` : ''}</button>`
+    : '<span class="text-slate-400 text-sm">—</span>';
+  const dur = m => m < 60 ? `${m} min` : `${Math.floor(m/60)}h ${pad(m%60)}min`;
+
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.remove('hidden');
+    clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add('hidden'), 2500);
+  }
+
+  function atrasada(f, agora) {
+    const saida = new Date(f.saida);
+    if (minutos(saida, agora) >= LIMITE_MIN) return true;
+    if (saida.toDateString() !== agora.toDateString()) return true;
+    return agora.getHours() >= HORA_FIM_DIA;
+  }
+
+  function renderAvaliadoras() {
+    const sel = $('avaliadora'), atual = sel.value;
+    const lote = $('avalLote'), atualLote = lote.value;
+    lote.innerHTML = '<option value="">Avaliadora…</option>' + avaliadoras.map(a => `<option>${esc(a)}</option>`).join('');
+    if (avaliadoras.includes(atualLote)) lote.value = atualLote;
+    sel.innerHTML = '<option value="" disabled selected>Selecione…</option>' +
+      avaliadoras.map(a => `<option>${esc(a)}</option>`).join('') +
+      '<option value="__outra">Outra (digitar nome)</option>';
+    if (avaliadoras.includes(atual)) sel.value = atual;
+    $('listaAval').innerHTML = avaliadoras.map((a, i) =>
+      `<li class="inline-flex items-center gap-1 rounded-full bg-slate-100 pl-3 pr-1 py-1">${esc(a)}
+        <button type="button" data-rm="${i}" class="rounded-full w-6 h-6 hover:bg-red-100 text-red-700" aria-label="Remover ${esc(a)}">×</button></li>`).join('');
+  }
+
+  function render() {
+    const agora = new Date();
+    const recep = fichas.filter(f => !f.saida && !f.devolucao).sort((a, b) => new Date(a.chegada) - new Date(b.chegada));
+    const ativas = fichas.filter(f => f.saida && !f.devolucao).sort((a, b) => new Date(a.saida) - new Date(b.saida));
+    const hist = fichas.filter(f => f.saida && f.devolucao).sort((a, b) => new Date(b.devolucao) - new Date(a.devolucao));
+
+    $('cntAtivas').textContent = ativas.length;
+    $('cntRecep').textContent = recep.length;
+    $('cntHist').textContent = hist.length;
+
+    // Alerta
+    const atrasadas = ativas.filter(f => atrasada(f, agora));
+    const al = $('alerta');
+    if (atrasadas.length) {
+      const fimDia = agora.getHours() >= HORA_FIM_DIA;
+      $('alertaTexto').textContent = fimDia
+        ? `${atrasadas.length} ficha(s) ainda fora da recepção no fim do dia. Confira com as avaliadoras.`
+        : `${atrasadas.length} ficha(s) fora há mais de ${LIMITE_MIN} min ou de ontem. Confira com as avaliadoras.`;
+      al.classList.remove('hidden'); al.classList.add('flex');
+    } else { al.classList.add('hidden'); al.classList.remove('flex'); }
+
+    // Em andamento
+    $('vazioAtivas').classList.toggle('hidden', ativas.length > 0);
+    $('tbAtivas').innerHTML = ativas.map(f => {
+      const late = atrasada(f, agora);
+      const m = minutos(new Date(f.saida), agora);
+      return `<tr class="border-t border-slate-100 ${late ? 'late-row' : ''}">
+        <td class="px-4 py-3 font-semibold">${nomeCli(f)}</td>
+        <td class="px-4 py-3">${esc(f.avaliadora)}</td>
+        <td class="px-4 py-3 whitespace-nowrap">${fmt(f.saida)}</td>
+        <td class="px-4 py-3 whitespace-nowrap ${late ? 'text-orange-700 font-bold pulse-soft' : ''}">${late ? '⚠ ' : ''}${dur(m)}</td>
+        <td class="px-4 py-3">${miniProva(f)}</td>
+        <td class="px-4 py-3 text-right"><button data-dev="${f.id}" class="rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 whitespace-nowrap">Devolver ficha</button></td>
+      </tr>`;
+    }).join('');
+
+    // Na recepção
+    for (const id of [...selecionadas]) if (!recep.some(f => f.id === id)) selecionadas.delete(id);
+    $('vazioRecep').classList.toggle('hidden', recep.length > 0);
+    $('tbRecep').innerHTML = recep.map(f => `<tr class="border-t border-slate-100">
+      <td class="px-4 py-3"><input type="checkbox" data-chk="${f.id}" ${selecionadas.has(f.id) ? 'checked' : ''} aria-label="Selecionar ficha de ${esc(f.cliente)}" class="w-5 h-5 accent-teal-700"></td>
+      <td class="px-4 py-3 font-semibold">${nomeCli(f)}${f.obs ? `<div class="text-sm font-normal text-slate-500">${esc(f.obs)}</div>` : ''}</td>
+      <td class="px-4 py-3 whitespace-nowrap">${fmt(f.chegada)}</td>
+      <td class="px-4 py-3 text-right"><button data-del="${f.id}" class="text-sm text-red-700 hover:underline">Excluir</button></td>
+    </tr>`).join('');
+    atualizarLote(recep.length);
+
+    // Histórico
+    const q = $('busca').value.trim().toLowerCase();
+    const anos = [...new Set([new Date().getFullYear(), ...hist.map(f => dataRef(f).getFullYear())])].sort((a, b) => b - a);
+    if (!anos.includes(anoSel)) anoSel = anos[0];
+    $('selAno').innerHTML = anos.map(a => `<option ${a === anoSel ? 'selected' : ''}>${a}</option>`).join('');
+    const doAno = hist.filter(f => dataRef(f).getFullYear() === anoSel);
+    const contMes = Array(12).fill(0); doAno.forEach(f => contMes[dataRef(f).getMonth()]++);
+    const pasta = (idx, nome, n) => { const on = mesSel === idx;
+      return `<button data-mes="${idx}" class="rounded-xl border px-2 py-2 text-left ${on ? 'bg-[#0f5f63] text-white border-[#0f5f63]' : 'bg-white border-slate-200 hover:border-teal-600'}"><div class="text-lg leading-none" aria-hidden="true">${on ? '📂' : '📁'}</div><div class="text-sm font-semibold">${nome}</div><div class="text-xs ${on ? 'text-teal-100' : 'text-slate-500'}">${n} ficha${n === 1 ? '' : 's'}</div></button>`; };
+    $('pastas').innerHTML = pasta(-1, `Ano ${anoSel}`, doAno.length) + MESES.map((m, i) => pasta(i, m, contMes[i])).join('');
+    $('tituloHist').textContent = q ? 'Resultado da busca (todos os meses)' : (mesSel < 0 ? `Fichas devolvidas em ${anoSel}` : `Fichas devolvidas em ${MESES[mesSel]} de ${anoSel}`);
+    const base = q ? hist : doAno.filter(f => mesSel < 0 || dataRef(f).getMonth() === mesSel);
+    const filtrado = base.filter(f => !q || f.cliente.toLowerCase().includes(q) || f.avaliadora.toLowerCase().includes(q));
+    $('vazioHist').classList.toggle('hidden', filtrado.length > 0);
+    $('vazioHist').textContent = hist.length ? 'Nenhuma ficha nesta pasta (ou nada encontrado na busca).' : 'Nenhuma ficha devolvida ainda.';
+    $('tbHist').innerHTML = filtrado.map(f => `<tr class="border-t border-slate-100">
+      <td class="px-4 py-3 font-semibold">${nomeCli(f)}</td>
+      <td class="px-4 py-3">${esc(f.avaliadora)}</td>
+      <td class="px-4 py-3 whitespace-nowrap">${fmt(f.saida)}</td>
+      <td class="px-4 py-3 whitespace-nowrap">${fmt(f.devolucao)}</td>
+      <td class="px-4 py-3 whitespace-nowrap">${dur(minutos(new Date(f.saida), new Date(f.devolucao)))}</td>
+      <td class="px-4 py-3">${miniProva(f)}</td>
+      <td class="px-4 py-3 text-right"><button data-undo="${f.id}" class="text-sm text-slate-600 hover:underline whitespace-nowrap">Desfazer devolução</button></td>
+    </tr>`).join('');
+  }
+
+  function tick() {
+    const d = new Date();
+    $('relogio').textContent = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    $('dataHoje').textContent = d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+    if (!saidaEditada) $('saida').value = paraInput(d);
+    if (!chegadaEditada) $('chegada').value = paraInput(d);
+    render();
+  }
+
+  // Eventos
+  $('saida').addEventListener('input', () => saidaEditada = true);
+  $('avaliadora').addEventListener('change', e => {
+    const outra = e.target.value === '__outra';
+    $('wrapOutra').classList.toggle('hidden', !outra);
+    $('outra').required = outra;
+    if (outra) $('outra').focus();
+  });
+
+  $('formRetirar').addEventListener('submit', e => {
+    e.preventDefault();
+    const cliente = $('cliente').value.trim();
+    let aval = $('avaliadora').value;
+    if (aval === '__outra') aval = $('outra').value.trim();
+    if (!cliente || !aval) return;
+    abrirProva({ cliente, avaliadora: aval, saida: new Date($('saida').value).toISOString() });
+  });
+
+  // ---- Comprovante de retirada (assinatura e/ou foto) ----
+  const EXIGIR_COMPROVANTE = true;   // false = comprovante opcional
+  let pendente = null, foto = null, temAss = false, stream = null, desenhando = false;
+  const cv = $('canvasAss'), ctx = cv.getContext('2d');
+
+  function prepararCanvas() {
+    const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+    cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d);
+    ctx.setTransform(d, 0, 0, d, 0, 0);
+    ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#111827';
+    temAss = false;
+  }
+  const posCv = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  cv.addEventListener('pointerdown', e => {
+    desenhando = true; temAss = true; cv.setPointerCapture(e.pointerId);
+    const [x, y] = posCv(e); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 0.1, y + 0.1); ctx.stroke();
+  });
+  cv.addEventListener('pointermove', e => { if (!desenhando) return; const [x, y] = posCv(e); ctx.lineTo(x, y); ctx.stroke(); });
+  ['pointerup', 'pointercancel'].forEach(t => cv.addEventListener(t, () => desenhando = false));
+
+  function exportarAss() {
+    const w = 420, h = Math.round(w * cv.height / cv.width);
+    const t = document.createElement('canvas'); t.width = w; t.height = h;
+    const c = t.getContext('2d'); c.fillStyle = '#fff'; c.fillRect(0, 0, w, h); c.drawImage(cv, 0, 0, w, h);
+    return t.toDataURL('image/jpeg', 0.75);
+  }
+  function reduzir(src, sw, sh) {
+    const k = Math.min(1, 480 / Math.max(sw, sh)), t = document.createElement('canvas');
+    t.width = Math.round(sw * k); t.height = Math.round(sh * k);
+    t.getContext('2d').drawImage(src, 0, 0, t.width, t.height);
+    return t.toDataURL('image/jpeg', 0.6);
+  }
+  function pararCamera() {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    $('video').classList.add('hidden'); $('btnCapturar').classList.add('hidden');
+  }
+  function mostrarFoto() {
+    $('fotoPrev').src = foto || ''; $('fotoPrev').classList.toggle('hidden', !foto);
+    $('btnFoto').textContent = foto ? 'Refazer foto' : 'Tirar foto';
+  }
+  $('btnFoto').onclick = async () => {
+    foto = null; mostrarFoto(); pararCamera();
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        $('video').srcObject = stream; $('video').classList.remove('hidden'); $('btnCapturar').classList.remove('hidden');
+        return;
+      } catch { /* sem câmera ou sem permissão: usa o seletor de arquivo */ }
+    }
+    $('fotoArq').click();
+  };
+  $('btnCapturar').onclick = () => {
+    const v = $('video'); if (!v.videoWidth) return;
+    foto = reduzir(v, v.videoWidth, v.videoHeight); pararCamera(); mostrarFoto();
+  };
+  $('fotoArq').onchange = e => {
+    const arq = e.target.files[0]; if (!arq) return;
+    const img = new Image();
+    img.onload = () => { foto = reduzir(img, img.naturalWidth, img.naturalHeight); URL.revokeObjectURL(img.src); mostrarFoto(); };
+    img.src = URL.createObjectURL(arq); e.target.value = '';
+  };
+
+  function abrirProva(p) {
+    pendente = p; foto = null;
+    $('provaResumo').textContent = p.resumo || `Ficha de ${p.cliente}, retirada por ${p.avaliadora}.`;
+    $('provaErro').classList.add('hidden');
+    $('modalProva').classList.remove('hidden'); document.body.classList.add('overflow-hidden');
+    prepararCanvas(); mostrarFoto();
+  }
+  function fecharProva() {
+    pararCamera(); pendente = null;
+    $('modalProva').classList.add('hidden'); document.body.classList.remove('overflow-hidden');
+  }
+  const erroProva = msg => { $('provaErro').textContent = msg; $('provaErro').classList.remove('hidden'); };
+
+  $('btnLimparAss').onclick = prepararCanvas;
+  $('btnCancelarProva').onclick = fecharProva;
+  $('btnConfirmarProva').onclick = () => {
+    if (!pendente) return;
+    if (EXIGIR_COMPROVANTE && !temAss && !foto) return erroProva('Peça para a avaliadora assinar ou tirar uma foto.');
+    const p = pendente, prova = { assinatura: temAss ? exportarAss() : null, foto };
+    const ids = p.ids || null;
+    if (ids) {
+      const validos = ids.filter(id => fichas.some(x => x.id === id));
+      if (!validos.length) return fecharProva();
+      const agora = new Date().toISOString();
+      validos.forEach(id => { store.atualizar(id, { avaliadora: p.avaliadora, saida: agora, prova }); selecionadas.delete(id); });
+    } else {
+      store.gravar({ id: novoId(), numero: '', obs: '', cliente: p.cliente, avaliadora: p.avaliadora,
+        chegada: p.saida, saida: p.saida, devolucao: null, prova });
+    }
+    if (!ids) {
+      $('formRetirar').reset(); $('wrapOutra').classList.add('hidden'); $('outra').required = false;
+      saidaEditada = false; renderAvaliadoras(); $('cliente').focus();
+    }
+    fecharProva(); tick();
+    toast(ids && ids.length > 1 ? `${ids.length} fichas retiradas por ${p.avaliadora}.` : `Ficha de ${p.cliente || 'cliente'} retirada por ${p.avaliadora}.`);
+  };
+
+  function verProva(f) {
+    $('verInfo').textContent = `${f.cliente}, retirada por ${f.avaliadora} em ${fmt(f.saida)}.`;
+    $('verCorpo').innerHTML = (f.prova.foto ? `<div><div class="text-sm font-medium mb-1">Foto</div><img src="${f.prova.foto}" alt="Foto da avaliadora" class="w-full rounded-lg border border-slate-200"></div>` : '') +
+      (f.prova.assinatura ? `<div><div class="text-sm font-medium mb-1">Assinatura</div><img src="${f.prova.assinatura}" alt="Assinatura da avaliadora" class="w-full rounded-lg border border-slate-200 bg-white"></div>` : '');
+    $('modalVer').classList.remove('hidden');
+  }
+  $('btnFecharVer').onclick = () => $('modalVer').classList.add('hidden');
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    $('modalVer').classList.add('hidden'); if (pendente) fecharProva();
+  });
+
+  $('chegada').addEventListener('input', () => chegadaEditada = true);
+  $('formCadastro').addEventListener('submit', e => {
+    e.preventDefault();
+    const cliente = $('cadCliente').value.trim();
+    if (!cliente) return;
+    store.gravar({ id: novoId(), numero: $('cadNumero').value.trim(), obs: $('cadObs').value.trim(), cliente, avaliadora: null,
+      chegada: new Date($('chegada').value).toISOString(), saida: null, devolucao: null });
+    e.target.reset(); chegadaEditada = false; tick();
+    toast(`Ficha de ${cliente} cadastrada na recepção.`);
+    $('cadCliente').focus();
+  });
+
+  document.addEventListener('change', e => {
+    const t = e.target;
+    if (t.dataset && t.dataset.chk) {
+      if (t.checked) selecionadas.add(t.dataset.chk); else selecionadas.delete(t.dataset.chk);
+      atualizarLote(recepAtual().length);
+    } else if (t.id === 'selTodas') {
+      selecionadas.clear();
+      if (t.checked) recepAtual().forEach(f => selecionadas.add(f.id));
+      render();
+    } else if (t.id === 'selAno') { anoSel = +t.value; render(); }
+  });
+
+  $('btnRetirarLote').addEventListener('click', () => {
+    const escolhidas = recepAtual().filter(f => selecionadas.has(f.id));
+    if (!escolhidas.length) return;
+    const av = $('avalLote').value;
+    if (!av) { toast('Escolha a avaliadora que vai levar as fichas.'); $('avalLote').focus(); return; }
+    const nomes = escolhidas.map(f => f.cliente);
+    const lista = nomes.length > 5 ? nomes.slice(0, 5).join(', ') + ` e mais ${nomes.length - 5}` : nomes.join(', ');
+    abrirProva({ ids: escolhidas.map(f => f.id), avaliadora: av,
+      resumo: `${escolhidas.length} ficha${escolhidas.length === 1 ? '' : 's'} (${lista}), retirada${escolhidas.length === 1 ? '' : 's'} por ${av}.` });
+  });
+
+  document.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.mes !== undefined) { mesSel = +b.dataset.mes; render(); }
+    else if (b.dataset.ver) {
+      const f = fichas.find(x => x.id === b.dataset.ver);
+      if (f && f.prova) verProva(f);
+    } else if (b.dataset.del) {
+      const f = fichas.find(x => x.id === b.dataset.del);
+      if (f && confirm(`Excluir o cadastro da ficha de ${f.cliente}?`)) store.excluir([f.id]);
+    } else if (b.dataset.dev) {
+      const f = fichas.find(x => x.id === b.dataset.dev);
+      if (f) { store.atualizar(f.id, { devolucao: new Date().toISOString() }); toast(`Ficha de ${f.cliente} devolvida.`); }
+    } else if (b.dataset.undo) {
+      const f = fichas.find(x => x.id === b.dataset.undo);
+      if (f) { store.atualizar(f.id, { devolucao: null }); toast(`Ficha de ${f.cliente} voltou para "Em andamento".`); }
+    } else if (b.dataset.rm !== undefined) {
+      store.salvarAval(avaliadoras.filter((_, i) => i !== +b.dataset.rm));
+    }
+  });
+
+  $('btnAddAval').addEventListener('click', () => {
+    const n = $('novaAval').value.trim();
+    if (n && !avaliadoras.includes(n)) store.salvarAval([...avaliadoras, n]);
+    $('novaAval').value = '';
+  });
+  $('novaAval').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('btnAddAval').click(); } });
+
+  const ABAS = { Recep: 'painelRecep', Ativas: 'painelAtivas', Hist: 'painelHist' };
+  function aba(nome) {
+    for (const [k, painel] of Object.entries(ABAS)) {
+      $(painel).classList.toggle('hidden', k !== nome);
+      $('tab' + k).className = (k === nome ? 'tab-on' : 'tab-off') + ' rounded-lg px-4 py-2 font-semibold text-sm';
+    }
+  }
+  for (const k of Object.keys(ABAS)) $('tab' + k).onclick = () => aba(k);
+  $('busca').addEventListener('input', render);
+
+  $('btnLimpar').addEventListener('click', () => {
+    if (!fichas.some(f => f.devolucao)) return;
+    if (confirm('Apagar todo o histórico de fichas devolvidas? Isso não pode ser desfeito.')) {
+      store.excluir(fichas.filter(f => f.devolucao).map(f => f.id));
+    }
+  });
+
+  function mostrarModo() {
+    const el = $('modo');
+    if (!nuvem) { el.textContent = 'Modo local: os dados ficam só neste aparelho'; el.className = 'text-xs mt-1 text-amber-200 font-semibold'; }
+    else if (!navigator.onLine) { el.textContent = 'Sem internet: salvando neste aparelho e enviando quando voltar'; el.className = 'text-xs mt-1 text-amber-200 font-semibold'; }
+    else { el.textContent = 'Sincronizado entre os aparelhos'; el.className = 'text-xs mt-1 text-teal-100'; }
+  }
+  window.addEventListener('online', mostrarModo);
+  window.addEventListener('offline', mostrarModo);
+  mostrarModo();
+
+  store.ouvirAval(l => { avaliadoras = Array.isArray(l) ? l : AVAL_PADRAO; renderAvaliadoras(); });
+  store.ouvirFichas(lista => { fichas = lista; render(); });
+  tick();
+  setInterval(tick, 30000);
+})();
+</script>
+</body>
+</html>
